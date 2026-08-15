@@ -2,6 +2,7 @@ import "dotenv/config";
 import argon2 from "argon2";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client.js";
+import { upsertPlanPrice } from "../src/app/lib/stripe.js";
 
 // Seeding deliberately uses its own unscoped client. The application client is
 // tenant-scoped and would filter these writes by the current organization.
@@ -25,36 +26,71 @@ const main = async () => {
     await prisma.plan.deleteMany();
 
     // ---------- Plans ----------
-    // stripePriceId values are placeholders until real Stripe test prices exist.
-    const [starter, professional, enterprise] = await Promise.all([
-        prisma.plan.create({
-            data: {
-                name: "Starter",
-                priceCents: 2900,
-                billingInterval: "MONTH",
-                stripePriceId: "price_starter_placeholder",
-                features: ["Up to 5 members", "Email support", "Basic analytics"],
-            },
-        }),
-        prisma.plan.create({
-            data: {
-                name: "Professional",
-                priceCents: 9900,
-                billingInterval: "MONTH",
-                stripePriceId: "price_professional_placeholder",
-                features: ["Up to 50 members", "Priority support", "Advanced analytics"],
-            },
-        }),
-        prisma.plan.create({
-            data: {
-                name: "Enterprise",
-                priceCents: 29900,
-                billingInterval: "MONTH",
-                stripePriceId: "price_enterprise_placeholder",
-                features: ["Unlimited members", "Dedicated support", "SSO", "Audit logs"],
-            },
-        }),
-    ]);
+    // Each plan needs a real Stripe Price before anyone can check out against it.
+    // upsertPlanPrice is idempotent on lookup_key, so re-seeding reuses existing
+    // prices rather than littering the Stripe account with duplicates.
+    const planDefinitions = [
+        {
+            lookupKey: "orbitsuite_starter_month",
+            name: "Starter",
+            priceCents: 2900,
+            billingInterval: "MONTH" as const,
+            features: ["Up to 5 members", "Email support", "Basic analytics"],
+        },
+        {
+            lookupKey: "orbitsuite_professional_month",
+            name: "Professional",
+            priceCents: 9900,
+            billingInterval: "MONTH" as const,
+            features: ["Up to 50 members", "Priority support", "Advanced analytics"],
+        },
+        {
+            lookupKey: "orbitsuite_enterprise_month",
+            name: "Enterprise",
+            priceCents: 29900,
+            billingInterval: "MONTH" as const,
+            features: ["Unlimited members", "Dedicated support", "SSO", "Audit logs"],
+        },
+    ];
+
+    // Seeding stays usable without Stripe configured; checkout simply will not
+    // work until the seed is re-run with a secret key present.
+    const stripeConfigured = Boolean(process.env.STRIPE_SECRET_KEY);
+
+    if (!stripeConfigured) {
+        console.warn(
+            "STRIPE_SECRET_KEY is not set — seeding plans with placeholder price ids.",
+        );
+    }
+
+    const plans = [];
+
+    for (const definition of planDefinitions) {
+        const stripePriceId = stripeConfigured
+            ? await upsertPlanPrice({
+                  lookupKey: definition.lookupKey,
+                  name: `OrbitSuite ${definition.name}`,
+                  priceCents: definition.priceCents,
+                  billingInterval: definition.billingInterval,
+              })
+            : `${definition.lookupKey}_placeholder`;
+
+        plans.push(
+            await prisma.plan.create({
+                data: {
+                    name: definition.name,
+                    priceCents: definition.priceCents,
+                    billingInterval: definition.billingInterval,
+                    stripePriceId,
+                    features: definition.features,
+                },
+            }),
+        );
+
+        console.log(`  ${definition.name.padEnd(13)} -> ${stripePriceId}`);
+    }
+
+    const [starter, professional] = plans;
 
     // ---------- Platform organization ----------
     // User.organizationId is non-null, so the platform admin needs a home org.

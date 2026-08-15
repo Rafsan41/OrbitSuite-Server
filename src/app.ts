@@ -5,6 +5,7 @@ import cookieParser from "cookie-parser";
 import prisma from "./app/lib/prisma.js";
 import { env } from "./app/config/env.js";
 import { IndexRoutes } from "./app/routers/index.js";
+import { WebhookRoutes } from "./app/modules/webhooks/webhook.route.js";
 import { errorHandler, notFoundHandler } from "./app/middlewares/error-handler.js";
 
 const app: Application = express();
@@ -16,8 +17,10 @@ app.use(helmet());
 // cross-origin request from the Next.js client.
 app.use(cors({ origin: env.CLIENT_URL, credentials: true }));
 
-// NOTE (P3): the Stripe webhook route must be mounted ABOVE express.json()
-// with express.raw() — signature verification needs the unparsed body.
+// Mounted ABOVE express.json() deliberately. The route parses its own body with
+// express.raw() because Stripe signs the exact bytes it sent; letting the JSON
+// parser touch this request first would break every signature check.
+app.use("/api/v1/webhooks", WebhookRoutes);
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());

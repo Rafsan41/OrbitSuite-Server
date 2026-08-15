@@ -41,11 +41,21 @@ export const env = parsed.data;
 
 // Narrow accessors for the optional groups — call these at the point of use so
 // a missing key surfaces as a clear error instead of `undefined` reaching Stripe.
-export const requireStripeEnv = () => {
-    if (!env.STRIPE_SECRET_KEY || !env.STRIPE_WEBHOOK_SECRET) {
-        throw new Error("STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET must be set");
+// Split deliberately: creating prices and checkout sessions needs only the API
+// key, while signature verification needs only the signing secret. Demanding
+// both together would block price setup before `stripe listen` has ever run.
+export const requireStripeSecretKey = (): string => {
+    if (!env.STRIPE_SECRET_KEY) {
+        throw new Error("STRIPE_SECRET_KEY must be set");
     }
-    return { secretKey: env.STRIPE_SECRET_KEY, webhookSecret: env.STRIPE_WEBHOOK_SECRET };
+    return env.STRIPE_SECRET_KEY;
+};
+
+export const requireStripeWebhookSecret = (): string => {
+    if (!env.STRIPE_WEBHOOK_SECRET) {
+        throw new Error("STRIPE_WEBHOOK_SECRET must be set");
+    }
+    return env.STRIPE_WEBHOOK_SECRET;
 };
 
 export const requireSmtpEnv = () => {
