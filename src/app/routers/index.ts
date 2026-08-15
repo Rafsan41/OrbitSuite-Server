@@ -3,6 +3,7 @@ import { AuthRoutes } from "../modules/auth/auth.route.js";
 import { CheckoutRoutes } from "../modules/checkout/checkout.route.js";
 import { PlanRoutes } from "../modules/plans/plan.route.js";
 import { OrganizationRoutes } from "../modules/organizations/organization.route.js";
+import { UserRoutes } from "../modules/users/user.route.js";
 
 const router = Router();
 
@@ -13,6 +14,7 @@ const moduleRoutes: { path: string; route: Router }[] = [
     { path: "/checkout", route: CheckoutRoutes },
     { path: "/plans", route: PlanRoutes },
     { path: "/organizations", route: OrganizationRoutes },
+    { path: "/users", route: UserRoutes },
     // NOTE: /webhooks is mounted directly in app.ts, above express.json().
     // { path: "/users", route: UserRoutes },
     // { path: "/plans", route: PlanRoutes },
