@@ -1,0 +1,183 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// OrbitSuite — Prisma schema for PostgreSQL
+// Drop this into prisma/schema.prisma (adjust the generator "output" path
+// if you changed it during `prisma init`).
+// ---------- Enums ----------
+
+enum OrgStatus {
+  // Created at signup but not yet paid for — cannot be used until a webhook
+  // confirms payment. Registration is paid onboarding, not free signup.
+  PENDING
+  TRIAL
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+enum UserRole {
+  PLATFORM_ADMIN
+  ORG_ADMIN
+  ORG_MEMBER
+}
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  REMOVED
+}
+
+enum BillingInterval {
+  MONTH
+  YEAR
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PENDING
+  FAILED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+  ROLLED_BACK
+}
+
+// ---------- Models ----------
+
+model Organization {
+  id           String    @id @default(uuid()) @db.Uuid
+  name         String
+  contactEmail String?   @map("contact_email")
+  billingEmail String?   @map("billing_email")
+  status       OrgStatus @default(TRIAL)
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  users        User[]
+  subscription Subscription?
+  payments     Payment[]
+  transactions Transaction[]
+
+  @@map("organizations")
+}
+
+model User {
+  id                String     @id @default(uuid()) @db.Uuid
+  organizationId    String     @map("organization_id") @db.Uuid
+  name              String
+  email             String     @unique
+  passwordHash      String     @map("password_hash")
+  role              UserRole
+  status            UserStatus @default(ACTIVE)
+  resetTokenHash    String?    @map("reset_token_hash")
+  resetTokenExpires DateTime?  @map("reset_token_expires")
+  createdAt         DateTime   @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+model Plan {
+  id              String          @id @default(uuid()) @db.Uuid
+  name            String
+  priceCents      Int             @map("price_cents")
+  billingInterval BillingInterval @map("billing_interval")
+  features        Json?
+  isActive        Boolean         @default(true) @map("is_active")
+  stripePriceId   String          @map("stripe_price_id")
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id                   String             @id @default(uuid()) @db.Uuid
+  organizationId       String             @unique @map("organization_id") @db.Uuid
+  planId               String             @map("plan_id") @db.Uuid
+  status               SubscriptionStatus
+  currentPeriodEnd     DateTime?          @map("current_period_end")
+  stripeSubscriptionId String?            @unique @map("stripe_subscription_id")
+  stripeCustomerId     String?            @map("stripe_customer_id")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan         Plan         @relation(fields: [planId], references: [id])
+  payments     Payment[]
+
+  @@map("subscriptions")
+}
+
+model Payment {
+  id                    String        @id @default(uuid()) @db.Uuid
+  organizationId        String        @map("organization_id") @db.Uuid
+  subscriptionId        String?       @map("subscription_id") @db.Uuid
+  amountCents           Int           @map("amount_cents")
+  currency              String        @default("usd")
+  status                PaymentStatus
+  // Unique so a replayed webhook can never create a second payment row for the
+  // same intent — a second idempotency layer behind ProcessedWebhookEvent.
+  stripePaymentIntentId String?       @unique @map("stripe_payment_intent_id")
+  createdAt             DateTime      @default(now()) @map("created_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+  transactions Transaction[]
+
+  @@index([organizationId])
+  @@map("payments")
+}
+
+model Transaction {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @map("organization_id") @db.Uuid
+  paymentId      String?           @map("payment_id") @db.Uuid
+  type           String
+  status         TransactionStatus
+  amountCents    Int               @map("amount_cents")
+  metadata       Json?
+  createdAt      DateTime          @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  payment      Payment?     @relation(fields: [paymentId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@map("transactions")
+}
+
+// Idempotency guard — see the webhook handler discussion in the README.
+// Insert the Stripe event id here BEFORE doing any real work; a unique-
+// constraint failure means the event was already processed.
+model ProcessedWebhookEvent {
+  stripeEventId String   @id @map("stripe_event_id")
+  processedAt   DateTime @default(now()) @map("processed_at")
+
+  @@map("processed_webhook_events")
+}
