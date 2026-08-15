@@ -5,6 +5,9 @@ import { PlanRoutes } from "../modules/plans/plan.route.js";
 import { OrganizationRoutes } from "../modules/organizations/organization.route.js";
 import { UserRoutes } from "../modules/users/user.route.js";
 import { SubscriptionRoutes } from "../modules/subscriptions/subscription.route.js";
+import { TransactionRoutes } from "../modules/transactions/transaction.route.js";
+import { PaymentRoutes } from "../modules/payments/payment.route.js";
+import { StatsRoutes } from "../modules/stats/stats.route.js";
 
 const router = Router();
 
@@ -17,12 +20,10 @@ const moduleRoutes: { path: string; route: Router }[] = [
     { path: "/organizations", route: OrganizationRoutes },
     { path: "/users", route: UserRoutes },
     { path: "/subscriptions", route: SubscriptionRoutes },
+    { path: "/transactions", route: TransactionRoutes },
+    { path: "/payments", route: PaymentRoutes },
+    { path: "/stats", route: StatsRoutes },
     // NOTE: /webhooks is mounted directly in app.ts, above express.json().
-    // { path: "/users", route: UserRoutes },
-    // { path: "/plans", route: PlanRoutes },
-    // { path: "/subscriptions", route: SubscriptionRoutes },
-    // { path: "/payments", route: PaymentRoutes },
-    // { path: "/transactions", route: TransactionRoutes },
 ];
 
 moduleRoutes.forEach(({ path, route }) => router.use(path, route));
