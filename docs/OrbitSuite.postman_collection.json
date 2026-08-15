@@ -1,0 +1,790 @@
+{
+  "info": {
+    "name": "OrbitSuite API",
+    "description": "Multi-tenant SaaS subscription platform.\n\nSETUP\n1. Run `npm run seed` to reset data, then `npm run dev`.\n2. Open the Auth folder and send one of the Login requests. The access token is captured automatically into a collection variable — every other request uses it.\n3. Switch roles by sending a different Login request.\n\nTest credentials (password for all: Password123!)\n  PLATFORM_ADMIN  platform.admin@orbitsuite.test\n  ORG_ADMIN       admin@acme.test    (Acme Corp)\n  ORG_MEMBER      member@acme.test   (Acme Corp)\n  ORG_ADMIN       admin@globex.test  (Globex Inc)\n  ORG_MEMBER      member@globex.test (Globex Inc)\n\nEach request notes the roles allowed. Requests marked 403 EXPECTED exist to prove authorization holds — send them while logged in as the wrong role.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000/api/v1" },
+    { "key": "accessToken", "value": "" },
+    { "key": "currentRole", "value": "" },
+    { "key": "planId", "value": "" },
+    { "key": "otherPlanId", "value": "" },
+    { "key": "organizationId", "value": "" },
+    { "key": "otherOrgId", "value": "" },
+    { "key": "memberId", "value": "" },
+    { "key": "paymentId", "value": "" },
+    { "key": "resetToken", "value": "" },
+    { "key": "inviteToken", "value": "" },
+    { "key": "uniqueEmail", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET / — health check",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": { "raw": "http://localhost:5000/", "protocol": "http", "host": ["localhost"], "port": "5000", "path": [""] },
+            "description": "Public. Runs SELECT 1 against Postgres. Idempotent — send it twice, identical 200 both times."
+          }
+        },
+        {
+          "name": "GET /nope — 404 envelope",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/nope", "host": ["{{baseUrl}}"], "path": ["nope"] },
+            "description": "Proves unmatched routes return the same {success,message,data} JSON shape rather than Express HTML."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login — PLATFORM_ADMIN",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.accessToken) {",
+                  "  pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "  pm.collectionVariables.set('currentRole', body.data.user.role);",
+                  "  pm.collectionVariables.set('organizationId', body.data.organization.id);",
+                  "  console.log('Logged in as ' + body.data.user.role);",
+                  "}",
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"platform.admin@orbitsuite.test\",\n  \"password\": \"Password123!\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "description": "Captures accessToken into a collection variable. The refresh token is set as an httpOnly cookie."
+          }
+        },
+        {
+          "name": "Login — ORG_ADMIN (Acme)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.accessToken) {",
+                  "  pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "  pm.collectionVariables.set('currentRole', body.data.user.role);",
+                  "  pm.collectionVariables.set('organizationId', body.data.organization.id);",
+                  "}",
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@acme.test\",\n  \"password\": \"Password123!\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Login — ORG_MEMBER (Acme)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.accessToken) {",
+                  "  pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "  pm.collectionVariables.set('currentRole', body.data.user.role);",
+                  "}",
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"member@acme.test\",\n  \"password\": \"Password123!\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Login — ORG_ADMIN (Globex, other tenant)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.accessToken) {",
+                  "  pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "  pm.collectionVariables.set('currentRole', body.data.user.role);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@globex.test\",\n  \"password\": \"Password123!\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "description": "Use this to prove tenant isolation: log in as Globex, then re-run any Acme request and confirm you cannot reach Acme's data."
+          }
+        },
+        {
+          "name": "Login — wrong password (401 EXPECTED)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@acme.test\",\n  \"password\": \"WrongPassword123\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "description": "Compare with the next request — the responses are identical, so neither confirms whether an account exists."
+          }
+        },
+        {
+          "name": "Login — unknown email (401 EXPECTED, identical)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"nobody@nowhere.test\",\n  \"password\": \"Password123!\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Register — new organization (paid onboarding)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.collectionVariables.set('uniqueEmail', 'founder+' + Date.now() + '@initech.test');"]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.accessToken) {",
+                  "  pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "}",
+                  "pm.test('organization starts PENDING, not ACTIVE', () => {",
+                  "  pm.expect(body.data.organization.status).to.eql('PENDING');",
+                  "  pm.expect(body.data.subscription.status).to.eql('PENDING');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"organizationName\": \"Initech\",\n  \"name\": \"Bill Lumbergh\",\n  \"email\": \"{{uniqueEmail}}\",\n  \"password\": \"Password123!\",\n  \"planId\": \"{{planId}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth", "register"] },
+            "description": "Run 'GET /plans' first so {{planId}} is set.\n\nCreates organization + admin user + subscription in ONE transaction, all PENDING. The org is not active until a Stripe webhook confirms payment. The email is randomised per send so this can be run repeatedly."
+          }
+        },
+        {
+          "name": "Register — weak password (400 EXPECTED)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"organizationName\": \"Hooli\",\n  \"name\": \"Gavin Belson\",\n  \"email\": \"gavin@hooli.test\",\n  \"password\": \"weak\",\n  \"planId\": \"{{planId}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth", "register"] },
+            "description": "Returns field-level validation failures in an `errors` array."
+          }
+        },
+        {
+          "name": "GET /auth/me",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/auth/me", "host": ["{{baseUrl}}"], "path": ["auth", "me"] },
+            "description": "Any authenticated role. Returns the user plus their organization and subscription."
+          }
+        },
+        {
+          "name": "POST /auth/refresh",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/auth/refresh", "host": ["{{baseUrl}}"], "path": ["auth", "refresh"] },
+            "description": "Uses the httpOnly refresh cookie set at login, and rotates both tokens — the new access token differs from the old."
+          }
+        },
+        {
+          "name": "POST /auth/change-password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"currentPassword\": \"Password123!\",\n  \"newPassword\": \"NewPassword456!\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/change-password", "host": ["{{baseUrl}}"], "path": ["auth", "change-password"] },
+            "description": "Any authenticated role. WARNING: really does change the password — re-run `npm run seed` afterwards to restore the test credentials."
+          }
+        },
+        {
+          "name": "POST /auth/forgot-password",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@acme.test\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/forgot-password", "host": ["{{baseUrl}}"], "path": ["auth", "forgot-password"] },
+            "description": "Always returns the same success message whether or not the account exists. The reset link is emailed, or logged to the server console when SMTP is unconfigured. Rate limited."
+          }
+        },
+        {
+          "name": "POST /auth/reset-password",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"token\": \"{{resetToken}}\",\n  \"password\": \"NewPassword456!\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/reset-password", "host": ["{{baseUrl}}"], "path": ["auth", "reset-password"] },
+            "description": "Copy the token from the server console after forgot-password and set {{resetToken}}. Tokens are stored as SHA-256 hashes and expire after 1 hour."
+          }
+        },
+        {
+          "name": "POST /auth/logout",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/auth/logout", "host": ["{{baseUrl}}"], "path": ["auth", "logout"] },
+            "description": "Clears the refresh cookie. The access token stays valid until it expires (15 min) — tokens are stateless by design."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Plans",
+      "item": [
+        {
+          "name": "GET /plans — list (public)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.length) {",
+                  "  pm.collectionVariables.set('planId', body.data[0].id);",
+                  "  const other = body.data.find(p => p.id !== body.data[0].id);",
+                  "  if (other) pm.collectionVariables.set('otherPlanId', other.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/plans?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["plans"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "includeInactive", "value": "true", "disabled": true }
+              ]
+            },
+            "description": "Public — the signup page needs plans before an account exists. Active plans only unless includeInactive=true. Captures {{planId}} and {{otherPlanId}} for later requests."
+          }
+        },
+        {
+          "name": "GET /plans/:id",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/plans/{{planId}}", "host": ["{{baseUrl}}"], "path": ["plans", "{{planId}}"] }
+          }
+        },
+        {
+          "name": "POST /plans — create (PLATFORM_ADMIN)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Team\",\n  \"priceCents\": 4900,\n  \"billingInterval\": \"MONTH\",\n  \"features\": [\"Up to 20 members\", \"Priority support\"]\n}" },
+            "url": { "raw": "{{baseUrl}}/plans", "host": ["{{baseUrl}}"], "path": ["plans"] },
+            "description": "PLATFORM_ADMIN only. Also creates the recurring Stripe Price automatically — see stripePriceId in the response. Idempotent on plan name + interval."
+          }
+        },
+        {
+          "name": "POST /plans — as ORG_MEMBER (403 EXPECTED)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Hacker\",\n  \"priceCents\": 1,\n  \"billingInterval\": \"MONTH\"\n}" },
+            "url": { "raw": "{{baseUrl}}/plans", "host": ["{{baseUrl}}"], "path": ["plans"] },
+            "description": "Log in as ORG_MEMBER first. Authorization is enforced server-side, not by hiding UI."
+          }
+        },
+        {
+          "name": "PATCH /plans/:id — update (PLATFORM_ADMIN)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Team (renamed)\",\n  \"features\": [\"Up to 25 members\"]\n}" },
+            "url": { "raw": "{{baseUrl}}/plans/{{planId}}", "host": ["{{baseUrl}}"], "path": ["plans", "{{planId}}"] },
+            "description": "Price and interval are deliberately not editable — Stripe prices are immutable, so changing an amount means creating a new plan. Existing subscribers keep the price they signed up on."
+          }
+        },
+        {
+          "name": "PATCH /plans/:id/disable (PLATFORM_ADMIN)",
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/plans/{{planId}}/disable", "host": ["{{baseUrl}}"], "path": ["plans", "{{planId}}", "disable"] },
+            "description": "Hides the plan from new signups. Never deletes it — subscriptions reference it and history must stay readable."
+          }
+        },
+        {
+          "name": "PATCH /plans/:id/enable (PLATFORM_ADMIN)",
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/plans/{{planId}}/enable", "host": ["{{baseUrl}}"], "path": ["plans", "{{planId}}", "enable"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Organizations",
+      "item": [
+        {
+          "name": "GET /organizations — list all (PLATFORM_ADMIN)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const globex = (body.data || []).find(o => o.name === 'Globex Inc');",
+                  "if (globex) pm.collectionVariables.set('otherOrgId', globex.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/organizations?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["organizations"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "search", "value": "acme", "disabled": true },
+                { "key": "status", "value": "ACTIVE", "disabled": true },
+                { "key": "planId", "value": "{{planId}}", "disabled": true }
+              ]
+            },
+            "description": "PLATFORM_ADMIN only. Returns name, status, memberCount, plan and signup date, with search plus status and plan filters."
+          }
+        },
+        {
+          "name": "GET /organizations/:id — detail (PLATFORM_ADMIN)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/organizations/{{organizationId}}", "host": ["{{baseUrl}}"], "path": ["organizations", "{{organizationId}}"] },
+            "description": "Full profile: members, subscription, payments and transaction history."
+          }
+        },
+        {
+          "name": "GET /organizations — as ORG_ADMIN (403 EXPECTED)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/organizations", "host": ["{{baseUrl}}"], "path": ["organizations"] },
+            "description": "Log in as ORG_ADMIN. Tenants cannot list all organizations."
+          }
+        },
+        {
+          "name": "GET /organizations/me (ORG_ADMIN)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/organizations/me", "host": ["{{baseUrl}}"], "path": ["organizations", "me"] },
+            "description": "The caller's own organization, with subscription and plan."
+          }
+        },
+        {
+          "name": "PATCH /organizations/me (ORG_ADMIN)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Acme Corporation\",\n  \"contactEmail\": \"hello@acme.test\",\n  \"billingEmail\": \"billing@acme.test\"\n}" },
+            "url": { "raw": "{{baseUrl}}/organizations/me", "host": ["{{baseUrl}}"], "path": ["organizations", "me"] },
+            "description": "Status is deliberately not editable here — only a Platform Admin can suspend or reactivate."
+          }
+        },
+        {
+          "name": "GET /organizations/me/summary (ORG_MEMBER)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/organizations/me/summary", "host": ["{{baseUrl}}"], "path": ["organizations", "me", "summary"] },
+            "description": "Reduced read-only view for members: id, name, status, memberCount, plan. Financial fields are never serialised, not merely hidden in the UI."
+          }
+        },
+        {
+          "name": "PATCH /organizations/:id/suspend (PLATFORM_ADMIN)",
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/organizations/{{otherOrgId}}/suspend", "host": ["{{baseUrl}}"], "path": ["organizations", "{{otherOrgId}}", "suspend"] },
+            "description": "Suspended orgs are refused at login and on refresh. Run 'list all' first to capture {{otherOrgId}}."
+          }
+        },
+        {
+          "name": "PATCH /organizations/:id/reactivate (PLATFORM_ADMIN)",
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/organizations/{{otherOrgId}}/reactivate", "host": ["{{baseUrl}}"], "path": ["organizations", "{{otherOrgId}}", "reactivate"] },
+            "description": "Restores ACTIVE only if the subscription supports it, otherwise PENDING — an unpaid organization never silently goes live."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users / Members",
+      "item": [
+        {
+          "name": "GET /users — list members (ORG_ADMIN)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const m = (body.data || []).find(u => u.role === 'ORG_MEMBER');",
+                  "if (m) pm.collectionVariables.set('memberId', m.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/users?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["users"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "search", "value": "", "disabled": true },
+                { "key": "role", "value": "ORG_MEMBER", "disabled": true },
+                { "key": "status", "value": "ACTIVE", "disabled": true }
+              ]
+            },
+            "description": "Scoped to the caller's organization by the Prisma tenant extension — no organizationId filter appears in the query itself."
+          }
+        },
+        {
+          "name": "POST /users/invite (ORG_ADMIN)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Peter Gibbons\",\n  \"email\": \"peter@acme.test\",\n  \"role\": \"ORG_MEMBER\"\n}" },
+            "url": { "raw": "{{baseUrl}}/users/invite", "host": ["{{baseUrl}}"], "path": ["users", "invite"] },
+            "description": "Creates an INVITED seat. The invite token is never in the response — it is emailed, or logged to the server console when SMTP is unconfigured. Role accepts only ORG_ADMIN or ORG_MEMBER, so an org admin cannot escalate anyone onto the platform team."
+          }
+        },
+        {
+          "name": "POST /users/accept-invite (public)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"token\": \"{{inviteToken}}\",\n  \"password\": \"Password123!\"\n}" },
+            "url": { "raw": "{{baseUrl}}/users/accept-invite", "host": ["{{baseUrl}}"], "path": ["users", "accept-invite"] },
+            "description": "Public — the invitee has no session yet and is authorised purely by the token. Copy it from the server console after sending an invite. Flips the user to ACTIVE."
+          }
+        },
+        {
+          "name": "GET /users/me — own profile (any role)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/users/me", "host": ["{{baseUrl}}"], "path": ["users", "me"] }
+          }
+        },
+        {
+          "name": "PATCH /users/me — edit own profile (any role)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Updated Name\"\n}" },
+            "url": { "raw": "{{baseUrl}}/users/me", "host": ["{{baseUrl}}"], "path": ["users", "me"] }
+          }
+        },
+        {
+          "name": "PATCH /users/:id/role (ORG_ADMIN)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"ORG_ADMIN\"\n}" },
+            "url": { "raw": "{{baseUrl}}/users/{{memberId}}/role", "host": ["{{baseUrl}}"], "path": ["users", "{{memberId}}", "role"] },
+            "description": "Blocked if it would demote the organization's last active admin."
+          }
+        },
+        {
+          "name": "DELETE /users/:id — remove member (ORG_ADMIN)",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{baseUrl}}/users/{{memberId}}", "host": ["{{baseUrl}}"], "path": ["users", "{{memberId}}"] },
+            "description": "Soft delete — sets status REMOVED so payment and transaction history stays readable. Cannot remove yourself or the last admin."
+          }
+        },
+        {
+          "name": "GET /users — as ORG_MEMBER (403 EXPECTED)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"] },
+            "description": "Members have no access to member management."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Checkout (Stripe)",
+      "item": [
+        {
+          "name": "POST /checkout/session (ORG_ADMIN)",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/checkout/session", "host": ["{{baseUrl}}"], "path": ["checkout", "session"] },
+            "description": "Creates a Stripe Checkout Session in subscription mode and returns checkoutUrl — open it in a browser and pay with test card 4242 4242 4242 4242, any future expiry, any CVC.\n\nNothing is marked paid here. Activation happens only when Stripe calls the webhook. Doubles as the retry path for an abandoned payment.\n\nRequires a PENDING subscription — register a new organization first, or this returns 409."
+          }
+        },
+        {
+          "name": "GET /checkout/status (ORG_ADMIN)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/checkout/status", "host": ["{{baseUrl}}"], "path": ["checkout", "status"] },
+            "description": "Current payment state plus canRetry, so the client can decide whether to offer another checkout attempt."
+          }
+        },
+        {
+          "name": "POST /webhooks/stripe — forged signature (400 EXPECTED)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Stripe-Signature", "value": "t=0,v1=invalid" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"id\": \"evt_test\",\n  \"type\": \"checkout.session.completed\"\n}" },
+            "url": { "raw": "{{baseUrl}}/webhooks/stripe", "host": ["{{baseUrl}}"], "path": ["webhooks", "stripe"] },
+            "description": "Sending this from Postman returns 400 — the signature is invalid, which is the point. Real events must arrive via `stripe listen --forward-to localhost:5000/api/v1/webhooks/stripe`.\n\nThis route is mounted above express.json() with express.raw(), because Stripe signs the exact bytes it sent and a parsed body fails every signature check."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Subscriptions",
+      "item": [
+        {
+          "name": "GET /subscriptions/me (ORG_ADMIN, ORG_MEMBER)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/subscriptions/me", "host": ["{{baseUrl}}"], "path": ["subscriptions", "me"] },
+            "description": "Current plan, status and renewal date, plus derived daysUntilRenewal and isExpired."
+          }
+        },
+        {
+          "name": "POST /subscriptions/change-plan (ORG_ADMIN)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"planId\": \"{{otherPlanId}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/subscriptions/change-plan", "host": ["{{baseUrl}}"], "path": ["subscriptions", "change-plan"] },
+            "description": "Upgrade or downgrade — direction is inferred from price. Pushed to Stripe first so the two systems cannot desync, with proration at Stripe's default. Sending the current plan returns 409."
+          }
+        },
+        {
+          "name": "POST /subscriptions/cancel (ORG_ADMIN)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"Testing cancellation\"\n}" },
+            "url": { "raw": "{{baseUrl}}/subscriptions/cancel", "host": ["{{baseUrl}}"], "path": ["subscriptions", "cancel"] },
+            "description": "Where a Stripe subscription exists this only requests cancellation; the customer.subscription.deleted webhook is what flips the records, keeping one source of truth. Falls back to a direct write for seeded data with no Stripe subscription."
+          }
+        },
+        {
+          "name": "POST /subscriptions/expire — sweep (PLATFORM_ADMIN)",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/subscriptions/expire", "host": ["{{baseUrl}}"], "path": ["subscriptions", "expire"] },
+            "description": "Marks ACTIVE subscriptions whose currentPeriodEnd has passed as EXPIRED. This is the only source of EXPIRED — Stripe reports failures and cancellations, but a lapsed period is a local, time-based fact. Returns 0 against fresh seed data, which is correct."
+          }
+        },
+        {
+          "name": "GET /subscriptions/expiring-soon (PLATFORM_ADMIN)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/subscriptions/expiring-soon", "host": ["{{baseUrl}}"], "path": ["subscriptions", "expiring-soon"] },
+            "description": "Subscriptions renewing within 7 days — the data source for the reminder email."
+          }
+        },
+        {
+          "name": "POST /subscriptions/notify-expiring (PLATFORM_ADMIN)",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/subscriptions/notify-expiring", "host": ["{{baseUrl}}"], "path": ["subscriptions", "notify-expiring"] },
+            "description": "Queues the 'expiring soon' reminder emails. Scheduled work in production, exposed as an endpoint so it can be demonstrated without adding a scheduler."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "GET /payments — history (ORG_ADMIN)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.length) pm.collectionVariables.set('paymentId', body.data[0].id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/payments?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "status", "value": "SUCCESS", "disabled": true }
+              ]
+            },
+            "description": "The caller's organization only. status accepts PENDING, SUCCESS, FAILED, REFUNDED."
+          }
+        },
+        {
+          "name": "GET /payments/:id — invoice data (ORG_ADMIN)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/payments/{{paymentId}}", "host": ["{{baseUrl}}"], "path": ["payments", "{{paymentId}}"] },
+            "description": "Invoice-shaped data including a derived invoiceNumber (INV-YYYY-XXXXXXXX), organization, plan and billing period. PDF generation is a listed bonus and is deliberately not implemented."
+          }
+        },
+        {
+          "name": "GET /payments — as ORG_MEMBER (403 EXPECTED)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/payments", "host": ["{{baseUrl}}"], "path": ["payments"] },
+            "description": "Members have no access to billing."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Transactions",
+      "item": [
+        {
+          "name": "GET /transactions — own org (ORG_ADMIN)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/transactions?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["transactions"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "status", "value": "SUCCESS", "disabled": true },
+                { "key": "type", "value": "SUBSCRIPTION_PAYMENT", "disabled": true },
+                { "key": "from", "value": "2026-01-01", "disabled": true },
+                { "key": "to", "value": "2026-12-31", "disabled": true }
+              ]
+            },
+            "description": "Statuses: PENDING, SUCCESS, FAILED, REFUNDED, ROLLED_BACK.\n\nTENANT ISOLATION DEMO: note the total here, then compare with 'all transactions' as PLATFORM_ADMIN. Passing organizationId as a query param is ignored on this route — the tenant extension pins the filter."
+          }
+        },
+        {
+          "name": "GET /transactions/all — platform-wide (PLATFORM_ADMIN)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/transactions/all?page=1&limit=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["transactions", "all"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "50" },
+                { "key": "organizationId", "value": "{{otherOrgId}}", "disabled": true },
+                { "key": "status", "value": "FAILED", "disabled": true },
+                { "key": "from", "value": "2026-01-01", "disabled": true },
+                { "key": "to", "value": "2026-12-31", "disabled": true }
+              ]
+            },
+            "description": "Every tenant, filterable by organization, status and date range. Each row includes its organization."
+          }
+        },
+        {
+          "name": "GET /transactions/all — as ORG_ADMIN (403 EXPECTED)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/transactions/all", "host": ["{{baseUrl}}"], "path": ["transactions", "all"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Stats",
+      "item": [
+        {
+          "name": "GET /stats — platform overview (PLATFORM_ADMIN)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/stats", "host": ["{{baseUrl}}"], "path": ["stats"] },
+            "description": "Total organizations with a breakdown by status, total users, active subscriptions, total revenue, failed payment count, recent signups, and subscribers plus MRR per plan.\n\nRevenue counts only payments with status SUCCESS."
+          }
+        },
+        {
+          "name": "GET /stats — as ORG_ADMIN (403 EXPECTED)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/stats", "host": ["{{baseUrl}}"], "path": ["stats"] }
+          }
+        }
+      ]
+    }
+  ]
+}
