@@ -1,4 +1,7 @@
-import prisma from "../../lib/prisma.js";
+// Authentication legitimately crosses tenants: a login looks a user up by
+// email before any organization is known. This is one of the few places
+// allowed to bypass tenant scoping.
+import { prismaUnscoped as prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/app-error.js";
 import {
     generateSecureToken,
