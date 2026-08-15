@@ -1,6 +1,7 @@
 import prisma, { prismaUnscoped } from "../../lib/prisma.js";
 import { getStripe } from "../../lib/stripe.js";
 import { AppError } from "../../utils/app-error.js";
+import { NotificationService } from "../notifications/notification.service.js";
 import type { AuthTokenPayload } from "../../utils/jwt.js";
 import type { CancelSubscriptionInput, ChangePlanInput } from "./subscription.validation.js";
 
@@ -99,6 +100,23 @@ const changePlan = async (auth: AuthTokenPayload, payload: ChangePlanInput) => {
         }),
     ]);
 
+    const organization = await prisma.organization.findUnique({
+        where: { id: auth.organizationId },
+        select: { name: true, billingEmail: true, contactEmail: true },
+    });
+
+    const recipient = organization?.billingEmail ?? organization?.contactEmail;
+
+    if (recipient) {
+        NotificationService.subscriptionChanged({
+            to: recipient,
+            organizationName: organization?.name ?? "your organization",
+            change: isUpgrade ? "upgrade" : "downgrade",
+            fromPlan: subscription.plan.name,
+            toPlan: nextPlan.name,
+        });
+    }
+
     return {
         subscription: updated,
         plan: nextPlan,
@@ -154,6 +172,23 @@ const cancel = async (auth: AuthTokenPayload, payload: CancelSubscriptionInput) 
             },
         }),
     ]);
+
+    // Only for the direct path. The Stripe path above returns early and its
+    // email is sent by the webhook handler, so cancelling never emails twice.
+    const organization = await prisma.organization.findUnique({
+        where: { id: auth.organizationId },
+        select: { name: true, billingEmail: true, contactEmail: true },
+    });
+
+    const recipient = organization?.billingEmail ?? organization?.contactEmail;
+
+    if (recipient) {
+        NotificationService.subscriptionChanged({
+            to: recipient,
+            organizationName: organization?.name ?? "your organization",
+            change: "cancelled",
+        });
+    }
 
     return { status: "cancelled", message: "Subscription cancelled." };
 };
@@ -215,10 +250,44 @@ const findExpiringSoon = async (withinDays = 7) => {
     });
 };
 
+/**
+ * Emails every organization whose plan renews soon.
+ *
+ * Scheduled work rather than a request handler — in production this would run
+ * daily from a cron. It is exposed as an endpoint so it can be triggered and
+ * demonstrated without adding a scheduler to the stack.
+ */
+const notifyExpiringSoon = async (withinDays = 7) => {
+    const expiring = await findExpiringSoon(withinDays);
+    let notified = 0;
+
+    for (const subscription of expiring) {
+        const recipient =
+            subscription.organization.billingEmail ?? subscription.organization.contactEmail;
+
+        if (!recipient || !subscription.currentPeriodEnd) continue;
+
+        NotificationService.subscriptionExpiringSoon({
+            to: recipient,
+            organizationName: subscription.organization.name,
+            planName: subscription.plan.name,
+            daysRemaining: Math.ceil(
+                (subscription.currentPeriodEnd.getTime() - Date.now()) / 86_400_000,
+            ),
+            renewsOn: subscription.currentPeriodEnd,
+        });
+
+        notified += 1;
+    }
+
+    return { notified, candidates: expiring.length };
+};
+
 export const SubscriptionService = {
     getCurrent,
     changePlan,
     cancel,
     expireLapsed,
     findExpiringSoon,
+    notifyExpiringSoon,
 };

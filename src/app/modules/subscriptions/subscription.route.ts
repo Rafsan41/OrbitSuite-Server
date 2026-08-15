@@ -17,6 +17,7 @@ const adminOnly = requireRole("PLATFORM_ADMIN");
 
 router.post("/expire", adminOnly, SubscriptionController.expireLapsed);
 router.get("/expiring-soon", adminOnly, SubscriptionController.expiringSoon);
+router.post("/notify-expiring", adminOnly, SubscriptionController.notifyExpiringSoon);
 
 // --- Org Admin: their own subscription ------------------------------------
 const orgAdmin = [withTenantScope, requireRole("ORG_ADMIN")];

@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { asyncHandler } from "../../utils/async-handler.js";
 import { UserService } from "./user.service.js";
 import { listMembersSchema } from "./user.validation.js";
-import { env } from "../../config/env.js";
+import { NotificationService } from "../notifications/notification.service.js";
 
 const listMembers = asyncHandler(async (req: Request, res: Response) => {
     const query = listMembersSchema.parse(req.query);
@@ -12,12 +12,21 @@ const listMembers = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const inviteMember = asyncHandler(async (req: Request, res: Response) => {
-    const { user, inviteToken } = await UserService.inviteMember(req.user!, req.body);
+    const { user, inviteToken, organizationName, invitedBy } = await UserService.inviteMember(
+        req.user!,
+        req.body,
+    );
 
-    // TODO(P5): send this through the mailer instead of logging it.
-    // The token is never returned in the response — possession of it is the
-    // only thing authorising the invitee, so it must travel by email alone.
-    console.log(`[invite] ${user.email} -> ${env.CLIENT_URL}/accept-invite?token=${inviteToken}`);
+    // Dispatched, not awaited: the invite is already persisted, so a slow or
+    // failing SMTP server must not turn a successful invite into an error.
+    // The token travels by email alone and never appears in the response.
+    NotificationService.memberInvited({
+        to: user.email,
+        inviteeName: user.name,
+        organizationName,
+        invitedBy,
+        token: inviteToken,
+    });
 
     res.status(201).json({ success: true, message: "Invitation sent", data: user });
 });

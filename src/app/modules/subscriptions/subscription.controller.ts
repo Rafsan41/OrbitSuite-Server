@@ -40,10 +40,21 @@ const expiringSoon = asyncHandler(async (_req: Request, res: Response) => {
     res.status(200).json({ success: true, message: "Expiring subscriptions retrieved", data });
 });
 
+const notifyExpiringSoon = asyncHandler(async (_req: Request, res: Response) => {
+    const result = await SubscriptionService.notifyExpiringSoon();
+
+    res.status(200).json({
+        success: true,
+        message: `${result.notified} reminder(s) queued`,
+        data: result,
+    });
+});
+
 export const SubscriptionController = {
     getCurrent,
     changePlan,
     cancel,
     expireLapsed,
     expiringSoon,
+    notifyExpiringSoon,
 };

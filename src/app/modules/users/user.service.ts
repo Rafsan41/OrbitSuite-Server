@@ -85,7 +85,22 @@ const inviteMember = async (auth: AuthTokenPayload, payload: InviteMemberInput) 
         select: publicFields,
     });
 
-    return { user, inviteToken: raw };
+    // Names for the invitation email, read here so the controller stays a thin
+    // request/response layer with no data access of its own.
+    const [organization, inviter] = await Promise.all([
+        prisma.organization.findUnique({
+            where: { id: auth.organizationId },
+            select: { name: true },
+        }),
+        prisma.user.findUnique({ where: { id: auth.userId }, select: { name: true } }),
+    ]);
+
+    return {
+        user,
+        inviteToken: raw,
+        organizationName: organization?.name ?? "your organization",
+        invitedBy: inviter?.name ?? "An administrator",
+    };
 };
 
 /**

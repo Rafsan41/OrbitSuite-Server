@@ -1,5 +1,6 @@
 import type Stripe from "stripe";
 import { prismaUnscoped } from "../../lib/prisma.js";
+import { NotificationService } from "../notifications/notification.service.js";
 
 // Prisma's transactional client. Every write below goes through it so the whole
 // event is applied as one unit.
@@ -9,6 +10,69 @@ export type WebhookOutcome =
     | { status: "processed"; event: string }
     | { status: "duplicate"; event: string }
     | { status: "ignored"; event: string };
+
+// Notification payloads the handlers return for dispatch after commit.
+type PendingNotification =
+    | {
+          kind: "payment_succeeded";
+          to: string | null;
+          organizationName: string;
+          planName: string;
+          amountCents: number;
+          currency: string;
+          periodEnd: Date;
+      }
+    | {
+          kind: "payment_failed";
+          organizationId: string;
+          amountCents: number;
+          currency: string;
+      }
+    | { kind: "subscription_cancelled"; to: string | null; organizationName: string }
+    | null;
+
+const dispatchNotification = async (notify: PendingNotification) => {
+    if (!notify) return;
+
+    switch (notify.kind) {
+        case "payment_succeeded":
+            if (!notify.to) return;
+            return NotificationService.paymentSucceeded({
+                to: notify.to,
+                organizationName: notify.organizationName,
+                planName: notify.planName,
+                amountCents: notify.amountCents,
+                currency: notify.currency,
+                periodEnd: notify.periodEnd,
+            });
+
+        case "payment_failed": {
+            // Resolved outside the transaction, so the lookup costs nothing
+            // while a lock is held.
+            const organization = await prismaUnscoped.organization.findUnique({
+                where: { id: notify.organizationId },
+                select: { name: true, billingEmail: true, contactEmail: true },
+            });
+            const to = organization?.billingEmail ?? organization?.contactEmail;
+            if (!to) return;
+
+            return NotificationService.paymentFailed({
+                to,
+                organizationName: organization?.name ?? "your organization",
+                amountCents: notify.amountCents,
+                currency: notify.currency,
+            });
+        }
+
+        case "subscription_cancelled":
+            if (!notify.to) return;
+            return NotificationService.subscriptionChanged({
+                to: notify.to,
+                organizationName: notify.organizationName,
+                change: "cancelled",
+            });
+    }
+};
 
 const isUniqueViolation = (error: unknown): boolean =>
     typeof error === "object" && error !== null && (error as { code?: string }).code === "P2002";
@@ -37,7 +101,7 @@ const applyCheckoutCompleted = async (tx: Tx, session: Stripe.Checkout.Session) 
     // otherwise an annual plan would appear to lapse after one month.
     const plan = await tx.plan.findUnique({
         where: { id: planId },
-        select: { billingInterval: true },
+        select: { billingInterval: true, name: true },
     });
 
     const periodEnd = new Date();
@@ -72,7 +136,7 @@ const applyCheckoutCompleted = async (tx: Tx, session: Stripe.Checkout.Session) 
         },
     });
 
-    await tx.organization.update({
+    const organization = await tx.organization.update({
         where: { id: organizationId },
         data: { status: "ACTIVE" },
     });
@@ -87,6 +151,19 @@ const applyCheckoutCompleted = async (tx: Tx, session: Stripe.Checkout.Session) 
             metadata: { stripeSessionId: session.id },
         },
     });
+
+    // Returned rather than sent here: the transaction has not committed yet, and
+    // a rollback must not leave a customer holding a receipt for a payment we
+    // did not record.
+    return {
+        kind: "payment_succeeded" as const,
+        to: organization.billingEmail ?? organization.contactEmail,
+        organizationName: organization.name,
+        planName: plan?.name ?? "your plan",
+        amountCents,
+        currency: session.currency ?? "usd",
+        periodEnd,
+    };
 };
 
 /** Payment failed: the organization stays unusable and the failure is recorded. */
@@ -95,7 +172,7 @@ const applyPaymentFailed = async (tx: Tx, invoice: Stripe.Invoice) => {
         where: { stripeCustomerId: typeof invoice.customer === "string" ? invoice.customer : "" },
     });
 
-    if (!subscription) return;
+    if (!subscription) return null;
 
     const amountCents = invoice.amount_due ?? 0;
 
@@ -124,6 +201,16 @@ const applyPaymentFailed = async (tx: Tx, invoice: Stripe.Invoice) => {
             metadata: { stripeInvoiceId: invoice.id },
         },
     });
+
+    // Organization details are looked up after commit rather than here: they are
+    // only needed for the email, and every extra query inside the transaction
+    // holds a database lock open for another network round trip.
+    return {
+        kind: "payment_failed" as const,
+        organizationId: subscription.organizationId,
+        amountCents,
+        currency: invoice.currency ?? "usd",
+    };
 };
 
 const applySubscriptionDeleted = async (tx: Tx, stripeSub: Stripe.Subscription) => {
@@ -131,14 +218,14 @@ const applySubscriptionDeleted = async (tx: Tx, stripeSub: Stripe.Subscription) 
         where: { stripeSubscriptionId: stripeSub.id },
     });
 
-    if (!subscription) return;
+    if (!subscription) return null;
 
     await tx.subscription.update({
         where: { id: subscription.id },
         data: { status: "CANCELLED" },
     });
 
-    await tx.organization.update({
+    const organization = await tx.organization.update({
         where: { id: subscription.organizationId },
         data: { status: "CANCELLED" },
     });
@@ -152,6 +239,12 @@ const applySubscriptionDeleted = async (tx: Tx, stripeSub: Stripe.Subscription) 
             metadata: { stripeSubscriptionId: stripeSub.id },
         },
     });
+
+    return {
+        kind: "subscription_cancelled" as const,
+        to: organization.billingEmail ?? organization.contactEmail,
+        organizationName: organization.name,
+    };
 };
 
 /**
@@ -166,27 +259,57 @@ const applySubscriptionDeleted = async (tx: Tx, stripeSub: Stripe.Subscription) 
  */
 export const handleStripeEvent = async (event: Stripe.Event): Promise<WebhookOutcome> => {
     try {
-        return await prismaUnscoped.$transaction(async (tx) => {
+        const { outcome, notify } = await prismaUnscoped.$transaction(async (tx) => {
             await tx.processedWebhookEvent.create({ data: { stripeEventId: event.id } });
 
             switch (event.type) {
                 case "checkout.session.completed":
-                    await applyCheckoutCompleted(tx, event.data.object as Stripe.Checkout.Session);
-                    return { status: "processed", event: event.type } as const;
+                    return {
+                        outcome: { status: "processed", event: event.type } as const,
+                        notify: await applyCheckoutCompleted(
+                            tx,
+                            event.data.object as Stripe.Checkout.Session,
+                        ),
+                    };
 
                 case "invoice.payment_failed":
-                    await applyPaymentFailed(tx, event.data.object as Stripe.Invoice);
-                    return { status: "processed", event: event.type } as const;
+                    return {
+                        outcome: { status: "processed", event: event.type } as const,
+                        notify: await applyPaymentFailed(tx, event.data.object as Stripe.Invoice),
+                    };
 
                 case "customer.subscription.deleted":
-                    await applySubscriptionDeleted(tx, event.data.object as Stripe.Subscription);
-                    return { status: "processed", event: event.type } as const;
+                    return {
+                        outcome: { status: "processed", event: event.type } as const,
+                        notify: await applySubscriptionDeleted(
+                            tx,
+                            event.data.object as Stripe.Subscription,
+                        ),
+                    };
 
                 default:
                     // Recorded as seen so Stripe stops resending it.
-                    return { status: "ignored", event: event.type } as const;
+                    return {
+                        outcome: { status: "ignored", event: event.type } as const,
+                        notify: null,
+                    };
             }
-        });
+        },
+        {
+            // Prisma's 5s default is tight against a pooled remote Postgres,
+            // where each statement in the transaction is a network round trip.
+            // Exceeding it would abort a payment we have already been paid for.
+            timeout: 20_000,
+            maxWait: 10_000,
+        },
+    );
+
+        // Only now that the transaction has committed, and deliberately not
+        // awaited: a slow mail server must not delay our 200 back to Stripe,
+        // which retries anything it does not see acknowledged quickly.
+        void dispatchNotification(notify);
+
+        return outcome;
     } catch (error) {
         if (isUniqueViolation(error)) {
             return { status: "duplicate", event: event.type };
