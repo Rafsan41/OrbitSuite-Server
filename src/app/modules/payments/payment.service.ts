@@ -7,6 +7,15 @@ type ListPaymentsQuery = PaginationQuery & {
 };
 
 /**
+ * Stable, human-readable reference derived from the id rather than a separate
+ * sequence, so it needs no extra state to stay unique. Defined once and used by
+ * both the list and the detail view — two copies of this formula would drift,
+ * and the number ends up printed on a PDF a customer keeps.
+ */
+const invoiceNumberFor = (id: string, createdAt: Date) =>
+    `INV-${createdAt.getFullYear()}-${id.slice(0, 8).toUpperCase()}`;
+
+/**
  * Billing history for the caller's organization. No organizationId filter is
  * written here — the tenant extension supplies it.
  */
@@ -31,7 +40,15 @@ const listOwn = async (query: ListPaymentsQuery) => {
         prisma.payment.count({ where }),
     ]);
 
-    return { data, meta: toMeta(query, total) };
+    return {
+        // Surfaced on the list too, so the billing table can show the reference
+        // and name the downloaded file without a second request.
+        data: data.map((payment) => ({
+            ...payment,
+            invoiceNumber: invoiceNumberFor(payment.id, payment.createdAt),
+        })),
+        meta: toMeta(query, total),
+    };
 };
 
 /**
@@ -59,9 +76,7 @@ const getOwnById = async (id: string) => {
 
     return {
         ...payment,
-        // Stable, human-readable reference derived from the id rather than a
-        // separate sequence, so it needs no extra state to stay unique.
-        invoiceNumber: `INV-${payment.createdAt.getFullYear()}-${payment.id.slice(0, 8).toUpperCase()}`,
+        invoiceNumber: invoiceNumberFor(payment.id, payment.createdAt),
     };
 };
 

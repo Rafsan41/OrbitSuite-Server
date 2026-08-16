@@ -48,6 +48,7 @@ The API listens on `http://localhost:5000`, with every route under `/api/v1`.
 | --- | --- |
 | `npm run dev` | Watch mode via tsx |
 | `npm run build` | `prisma generate` then `tsc` |
+| `npm run build:vercel` | Bundles the app to `dist-vercel/` for the serverless function |
 | `npm start` | Run the compiled output in `dist/` |
 | `npm run seed` | Reset and repopulate the demo data |
 | `npm test` | Vitest — 67 tests against a real database |
@@ -186,6 +187,30 @@ has to live on the long-lived object too.
 
 See `tests/payment-flow.test.ts` (9 cases).
 
+### Invoice PDFs
+
+`GET /payments/:id/invoice` returns a one-page PDF carrying the organization
+name, plan, billing period, amount, payment date and invoice number.
+
+The invoice number is derived from the payment id — `INV-<year>-<first eight
+characters, uppercased>` — so it is stable and unique without a separate
+sequence to keep. It is computed in one place and used by both the JSON views
+and the PDF, because two copies of that formula would eventually disagree about
+a number printed on a document a customer keeps.
+
+Rendered with **pdfkit**, not a headless browser. The layout is a fixed single
+page with no reflow, so the one thing a browser would buy — real CSS layout —
+buys nothing, while Chromium would add roughly 180MB to every install and a
+browser launch to every request.
+
+Nothing is stored: the buffer is built in memory per request. Invoices are
+derived entirely from data already held, so a saved copy would only be a second
+thing to keep in sync.
+
+This route is the one endpoint that does not return the standard envelope — its
+body is the file. Errors still do, because they are thrown before anything is
+written and the global handler formats them.
+
 ### Webhook idempotency and rollback
 
 Stripe retries. A replayed event must not charge, activate or record anything
@@ -247,7 +272,7 @@ All routes are under `/api/v1`. A Postman collection is in
 | `/organizations` | Tenant profile; Platform Admin listing, suspend, reactivate |
 | `/users` | Members, invitations, own profile |
 | `/subscriptions` | Current subscription, plan changes, cancellation, expiry sweep |
-| `/payments` | Billing history and invoice detail — Org Admin only |
+| `/payments` | Billing history, invoice detail, and invoice PDF — Org Admin only |
 | `/transactions` | Own ledger, plus a platform-wide view for Platform Admin |
 | `/stats` | Platform-wide totals — Platform Admin only |
 
@@ -256,6 +281,38 @@ registered otherwise, guards `NODE_ENV` again inside its own router, and still
 requires an authenticated Platform Admin.
 
 ---
+
+## Deploying to Vercel
+
+`api/index.ts` exports the Express app as a serverless function, and
+`vercel.json` rewrites every path to it so the existing router keeps owning
+routing. `npm run build:vercel` bundles the app with tsup into a single file
+first — `moduleResolution: NodeNext` gives every relative import a `.js` suffix
+that points at a `.ts` file, and one pre-bundled file removes that question for
+the platform bundler.
+
+Set `DATABASE_URL`, both JWT secrets, `STRIPE_SECRET_KEY`,
+`STRIPE_WEBHOOK_SECRET`, `CLIENT_URL` and `NODE_ENV=production` in the project's
+environment variables. Migrations and the seed run from a developer machine
+against the production database — Vercel has no shell:
+
+```bash
+DATABASE_URL="<production-url>" npx prisma migrate deploy
+```
+
+Then point a Stripe webhook endpoint at
+`https://<deployment>/api/v1/webhooks/stripe`.
+
+Two things behave differently once deployed, and both are deliberate to record
+rather than discover:
+
+- **Rate limiting weakens.** `express-rate-limit` keeps its counters in memory,
+  and each serverless instance has its own. Real protection across instances
+  needs a shared store such as Redis.
+- **Webhook signatures depend on the raw body.** The route is mounted above
+  `express.json()` locally, but a platform that parses the body before Express
+  sees it would break every signature check. If webhooks fail after a deploy
+  with signature errors, that is the first thing to look at.
 
 ## Project layout
 
