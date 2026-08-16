@@ -1,5 +1,5 @@
 import "dotenv/config";
-import argon2 from "argon2";
+import { hashPassword } from "../utils/password.js";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../../generated/prisma/client.js";
 import { upsertPlanPrice } from "./stripe.js";
@@ -14,7 +14,10 @@ const prisma = new PrismaClient({ adapter });
 const DEMO_PASSWORD = "Password123!";
 
 const main = async () => {
-    const passwordHash = await argon2.hash(DEMO_PASSWORD);
+    // Reuses the application's hasher so seeded accounts are hashed with the
+    // same parameters as real ones — a seed that hashes differently is a seed
+    // that can hide a login bug.
+    const passwordHash = await hashPassword(DEMO_PASSWORD);
 
     // Wipe in FK-safe order so the seed is repeatable.
     await prisma.processedWebhookEvent.deleteMany();
