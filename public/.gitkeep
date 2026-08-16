@@ -1,0 +1,4 @@
+This project serves no static files. Every request is rewritten to the
+Express function in api/, so nothing here is ever sent to a client.
+Vercel's build step still requires an output directory to exist, which is
+the only reason this one does.

@@ -6,12 +6,32 @@ import { env } from "../../config/env.js";
 
 const REFRESH_COOKIE = "refreshToken";
 
-// httpOnly keeps the refresh token out of reach of JavaScript, so an XSS bug
-// cannot exfiltrate a long-lived session. sameSite=strict blocks CSRF replay.
+const isProduction = env.NODE_ENV === "production";
+
+/**
+ * httpOnly keeps the refresh token out of reach of JavaScript, so an XSS bug
+ * cannot exfiltrate a long-lived session.
+ *
+ * sameSite has to differ by environment. Locally the client and API are both on
+ * localhost — the same site, ports being irrelevant to that definition — so
+ * `strict` costs nothing. Deployed, they sit on separate hosts, and because
+ * `vercel.app` is on the Public Suffix List each subdomain is a *different*
+ * site. A `strict` cookie is never sent cross-site, so the browser would hold a
+ * refresh token it never once attached: every refresh would 401 and users would
+ * be signed out on each page reload.
+ *
+ * `none` is safe here because it is not what defends this API. Every
+ * authenticated route reads a Bearer token from the Authorization header, which
+ * a cross-site form or image cannot set — so CSRF cannot drive an authenticated
+ * action regardless of cookie policy. The one cookie-authenticated endpoint is
+ * /auth/refresh, and forcing a victim's browser to refresh achieves nothing: the
+ * attacker cannot read the response, because CORS is locked to CLIENT_URL.
+ */
 const refreshCookieOptions = {
     httpOnly: true,
-    secure: env.NODE_ENV === "production",
-    sameSite: "strict" as const,
+    // `none` is only legal on a secure cookie, so these two move together.
+    secure: isProduction,
+    sameSite: isProduction ? ("none" as const) : ("strict" as const),
     path: "/api/v1/auth",
     maxAge: 7 * 24 * 60 * 60 * 1000,
 };
