@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+# A second push to the same branch cancels the first — no point finishing a run
+# for a commit that has already been superseded.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint, test and build
+    runs-on: ubuntu-latest
+
+    # The test suite runs against a real database on purpose: the tenant-scoping
+    # Prisma extension and the transactional rollback are precisely the things a
+    # mocked client would fake away. A service container gives CI a throwaway
+    # Postgres so those tests keep their teeth.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: orbitsuite_test
+        ports:
+          - 5432:5432
+        # Without the health check the first migration can race the container
+        # and fail on a connection refused.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/orbitsuite_test
+      # Throwaway values that satisfy the 32-character minimum the env schema
+      # enforces. They are deliberately not secrets: nothing in CI touches a
+      # real account, so a fork can run this pipeline with nothing configured.
+      JWT_ACCESS_SECRET: ci-access-secret-not-used-anywhere-real-000000
+      JWT_REFRESH_SECRET: ci-refresh-secret-not-used-anywhere-real-00000
+      # STRIPE_SECRET_KEY and the SMTP block are intentionally absent. The seed
+      # falls back to placeholder price ids and the mailer logs [mail:skipped],
+      # so neither is needed to prove the suite passes.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 22 LTS rather than current: argon2 is a native module, and LTS is
+          # where its prebuilt binaries are surest.
+          node-version: "22"
+          cache: npm
+
+      # `npm ci` also runs the postinstall `prisma generate`, so the client is
+      # built before anything imports it.
+      - name: Install dependencies
+        run: npm ci
+
+      # `migrate deploy`, not `migrate dev`: deploy applies committed migrations
+      # and never prompts or invents new ones.
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      # The suite needs a plan to exist — several tests open with
+      # `plan.findFirstOrThrow({ where: { isActive: true } })`.
+      - name: Seed the database
+        run: npm run seed
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      # Last, because a type error should surface after the tests that would
+      # explain it rather than before them.
+      - name: Build
+        run: npm run build
+
+      # The deployment artifact is built here too, so a bundling failure shows
+      # up in a pull request rather than in a failed deploy.
+      - name: Build serverless bundle
+        run: npm run build:vercel
